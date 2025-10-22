@@ -1,0 +1,155 @@
+/*
+ * CÓDIGO FINAL - SENSOR DE CLOROFILA CON CONTROL BLE
+ *
+ * Este código crea un servidor BLE en el ESP32.
+ * Permite:
+ * 1. Notificar el valor del sensor (Pin 34) cuando el escaneo está "START".
+ * 2. Recibir comandos ("START", "STOP", "CALIBRATE") desde la app web.
+ */
+
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <string>
+
+// --- Configuración del Sensor ---
+#define SENSOR_PIN 34 // Pin ADC donde está conectado tu sensor (GPIO 34)
+                      // Recuerda: Pines 34, 35, 36, 39 son SOLO ENTRADA.
+
+// --- Configuración BLE ---
+// Este es el UUID de tu "Servicio". Es como el DNI del proyecto.
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+// Característica para ENVIAR datos (Sensor -> App)
+#define SENSOR_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+// Característica para RECIBIR comandos (App -> Sensor)
+#define COMMAND_CHARACTERISTIC_UUID "f27a7c06-3b60-444f-800d-e1e3676c5b9f"
+
+// --- Variables Globales ---
+int sensorValue = 0;
+BLECharacteristic *pSensorCharacteristic;  // Puntero a la característica del sensor
+BLECharacteristic *pCommandCharacteristic; // Puntero a la característica de comandos
+bool deviceConnected = false;  // Flag para saber si hay alguien conectado
+bool isScanning = false;       // Flag para controlar el escaneo (inicia en STOP)
+int calibrationValue = 0;      // Variable para guardar el valor de calibración
+
+// --- Callback para Conexión/Desconexión ---
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+      Serial.println("Dispositivo conectado");
+    }
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+      isScanning = false; // Detiene el escaneo si se desconecta
+      Serial.println("Dispositivo desconectado. Reiniciando advertising...");
+      BLEDevice::startAdvertising(); // Reinicia el "advertising"
+    }
+};
+
+// --- Callback para Comandos Recibidos ---
+// Aquí ocurre la magia del control
+class MyCommandCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      // Obtiene el valor (comando) que envió la app
+      std::string value = pCharacteristic->getValue();
+
+      if (value.length() > 0) {
+        Serial.print("Comando recibido: '");
+        Serial.print(value.c_str());
+        Serial.println("'");
+
+        // Lógica de control
+        if (value == "START") {
+          Serial.println("-> OK: Iniciando escaneo.");
+          isScanning = true;
+        } 
+        else if (value == "STOP") {
+          Serial.println("-> OK: Deteniendo escaneo.");
+          isScanning = false;
+        }
+        else if (value == "CALIBRATE") {
+          Serial.println("-> OK: Ejecutando rutina de calibración...");
+          // Simulación: toma una lectura actual y la guarda como "blanco"
+          calibrationValue = analogRead(SENSOR_PIN);
+          Serial.print("-> Calibración completada. Valor 'blanco' guardado: ");
+          Serial.println(calibrationValue);
+          // (Aquí podrías notificar a la app que la calibración terminó)
+        }
+      }
+    }
+};
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Iniciando servidor BLE v2.0 - Sensor Clorofila");
+
+  // Configura el pin del sensor
+  pinMode(SENSOR_PIN, INPUT);
+
+  // --- Inicializar BLE ---
+  BLEDevice::init("ESP32_Clorofila_Control"); // El nombre que verá el usuario
+
+  // 1. Crear el Servidor BLE
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // 2. Crear el Servicio
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // 3. Crear la Característica del SENSOR (Notificar)
+  pSensorCharacteristic = pService->createCharacteristic(
+                      SENSOR_CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_READ |
+                      BLECharacteristic::PROPERTY_NOTIFY
+                    );
+
+  // 4. Crear la Característica de COMANDOS (Escribir)
+  pCommandCharacteristic = pService->createCharacteristic(
+                      COMMAND_CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_WRITE
+                    );
+  // Asignar el callback para cuando la app escriba un comando
+  pCommandCharacteristic->setCallbacks(new MyCommandCallbacks());
+
+
+  // 5. Iniciar el Servicio
+  pService->start();
+
+  // 6. Iniciar el "Advertising" (anuncio)
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  BLEDevice::startAdvertising();
+
+  Serial.println("=========================================");
+  Serial.println("Servidor BLE iniciado. Esperando conexiones...");
+  Serial.println("=========================================");
+}
+
+void loop() {
+  
+  // Solo leer y notificar si estamos conectados Y el escaneo está activo
+  if (deviceConnected && isScanning) {
+    // --- 1. Leer el Sensor ---
+    sensorValue = analogRead(SENSOR_PIN);
+    
+    // Aquí es donde harías el cálculo de absorbancia usando 'calibrationValue'
+    // float absorbancia = log10((float)calibrationValue / (float)sensorValue);
+    // Por ahora, solo enviamos el valor crudo:
+    
+    Serial.print("Valor Sensor: ");
+    Serial.println(sensorValue);
+
+    // --- 2. Actualizar el valor BLE ---
+    std::string s_value = std::to_string(sensorValue);
+    pSensorCharacteristic->setValue(s_value);
+    pSensorCharacteristic->notify(); // Enviar el dato a la app
+  }
+
+  // --- Espera ---
+  // Este delay controla la tasa de muestreo
+  // Si no estamos escaneando, el ESP32 "descansa" pero sigue escuchando comandos.
+  delay(500); 
+}
