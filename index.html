@@ -1,155 +1,227 @@
-/*
- * CÓDIGO FINAL - SENSOR DE CLOROFILA CON CONTROL BLE
- *
- * Este código crea un servidor BLE en el ESP32.
- * Permite:
- * 1. Notificar el valor del sensor (Pin 34) cuando el escaneo está "START".
- * 2. Recibir comandos ("START", "STOP", "CALIBRATE") desde la app web.
- */
-
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
-#include <string>
-
-// --- Configuración del Sensor ---
-#define SENSOR_PIN 34 // Pin ADC donde está conectado tu sensor (GPIO 34)
-                      // Recuerda: Pines 34, 35, 36, 39 son SOLO ENTRADA.
-
-// --- Configuración BLE ---
-// Este es el UUID de tu "Servicio". Es como el DNI del proyecto.
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-// Característica para ENVIAR datos (Sensor -> App)
-#define SENSOR_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-// Característica para RECIBIR comandos (App -> Sensor)
-#define COMMAND_CHARACTERISTIC_UUID "f27a7c06-3b60-444f-800d-e1e3676c5b9f"
-
-// --- Variables Globales ---
-int sensorValue = 0;
-BLECharacteristic *pSensorCharacteristic;  // Puntero a la característica del sensor
-BLECharacteristic *pCommandCharacteristic; // Puntero a la característica de comandos
-bool deviceConnected = false;  // Flag para saber si hay alguien conectado
-bool isScanning = false;       // Flag para controlar el escaneo (inicia en STOP)
-int calibrationValue = 0;      // Variable para guardar el valor de calibración
-
-// --- Callback para Conexión/Desconexión ---
-class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      deviceConnected = true;
-      Serial.println("Dispositivo conectado");
-    }
-
-    void onDisconnect(BLEServer* pServer) {
-      deviceConnected = false;
-      isScanning = false; // Detiene el escaneo si se desconecta
-      Serial.println("Dispositivo desconectado. Reiniciando advertising...");
-      BLEDevice::startAdvertising(); // Reinicia el "advertising"
-    }
-};
-
-// --- Callback para Comandos Recibidos ---
-// Aquí ocurre la magia del control
-class MyCommandCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      // Obtiene el valor (comando) que envió la app
-      std::string value = pCharacteristic->getValue();
-
-      if (value.length() > 0) {
-        Serial.print("Comando recibido: '");
-        Serial.print(value.c_str());
-        Serial.println("'");
-
-        // Lógica de control
-        if (value == "START") {
-          Serial.println("-> OK: Iniciando escaneo.");
-          isScanning = true;
-        } 
-        else if (value == "STOP") {
-          Serial.println("-> OK: Deteniendo escaneo.");
-          isScanning = false;
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Control - Sensor Clorofila</title>
+    <!-- Carga de Tailwind CSS para estilos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Fuente Inter para un look moderno */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Evitar rebote en scroll en móviles */
+            overscroll-behavior-y: contain;
         }
-        else if (value == "CALIBRATE") {
-          Serial.println("-> OK: Ejecutando rutina de calibración...");
-          // Simulación: toma una lectura actual y la guarda como "blanco"
-          calibrationValue = analogRead(SENSOR_PIN);
-          Serial.print("-> Calibración completada. Valor 'blanco' guardado: ");
-          Serial.println(calibrationValue);
-          // (Aquí podrías notificar a la app que la calibración terminó)
+        #graphBarContainer { background-color: #374151; }
+        #graphBar { 
+            transition: height 0.3s ease; 
+            box-shadow: 0 0 10px rgba(52, 211, 153, 0.5); /* Sombra verde */
         }
-      }
-    }
-};
+        /* Estilo para botones deshabilitados */
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">
+
+    <!-- Contenedor principal -->
+    <div class="bg-gray-800 p-6 md:p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+        
+        <!-- Título y Estado -->
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-green-400">Sensor Clorofila</h1>
+            <p id="status" class="text-sm text-gray-400 mt-2">Desconectado</p>
+        </div>
+
+        <!-- Botón de Conexión -->
+        <button id="connectButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-300 shadow-lg mb-6 focus:outline-none focus:ring-2 focus:ring-green-400">
+            Conectar al ESP32
+        </button>
+
+        <!-- Panel de Control -->
+        <div id="controlPanel" class="pt-6 border-t border-gray-700">
+            <h2 class="text-xl font-semibold text-center text-gray-300 mb-4">Panel de Control</h2>
+            <div class="space-y-3">
+                <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-400">
+                    Iniciar Escaneo
+                </button>
+                <button id="stopButton" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-yellow-400">
+                    Detener Escaneo
+                </button>
+                <button id="calibrateButton" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    Calibrar (Tomar Blanco)
+                </button>
+            </div>
+        </div>
+
+        <!-- Área de Datos -->
+        <div id="dataArea" class="mt-8 pt-8 border-t border-gray-700 opacity-30">
+            <p class="text-lg font-medium text-gray-300 text-center">Valor Crudo del Sensor</p>
+            <div id="sensorValue" class="text-7xl font-extrabold text-center my-4 text-green-300">
+                ---
+            </div>
+            <p class="text-sm text-gray-400 text-center mb-2">Nivel (0-4095)</p>
+            <div id="graphBarContainer" class="w-full h-16 rounded-lg overflow-hidden flex items-end">
+                <div id="graphBar" class="w-full bg-gradient-to-t from-green-600 to-green-400" style="height: 0%;"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- UUIDs (DEBEN COINCIDIR EXACTAMENTE CON LOS DEL CÓDIGO .INO) ---
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        const SENSOR_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+        const COMMAND_CHARACTERISTIC_UUID = "f27a7c06-3b60-444f-800d-e1e3676c5b9f";
+
+        // --- Elementos del DOM ---
+        const connectButton = document.getElementById('connectButton');
+        const statusDisplay = document.getElementById('status');
+        const valueDisplay = document.getElementById('sensorValue');
+        const graphBar = document.getElementById('graphBar');
+        const dataArea = document.getElementById('dataArea');
+        
+        // Botones de control
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const calibrateButton = document.getElementById('calibrateButton');
+        const controlButtons = [startButton, stopButton, calibrateButton];
+
+        // --- Variables Globales de la App ---
+        let bleDevice;
+        let sensorCharacteristic;
+        let commandCharacteristic;
+        let isScanningApp = false; // Flag de la app para controlar la UI
+
+        // --- Al cargar la página, deshabilitar botones de control ---
+        function setControlButtonsState(enabled) {
+            controlButtons.forEach(button => button.disabled = !enabled);
+        }
+        setControlButtonsState(false); // Deshabilitados al inicio
+
+        // --- Función de Conexión ---
+        async function connectDevice() {
+            try {
+                statusDisplay.textContent = "Buscando dispositivo...";
+                
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { name: 'ESP32_Clorofila_Control' }, // Filtra por nombre
+                        { services: [SERVICE_UUID] }          // O filtra por servicio
+                    ],
+                    optionalServices: [SERVICE_UUID] // Necesario para iOS/iPadOS
+                });
+
+                statusDisplay.textContent = "Conectando al GATT...";
+                const server = await bleDevice.gatt.connect();
+
+                statusDisplay.textContent = "Obteniendo servicio...";
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                statusDisplay.textContent = "Obteniendo características...";
+                // Característica del SENSOR (para leer)
+                sensorCharacteristic = await service.getCharacteristic(SENSOR_CHARACTERISTIC_UUID);
+                await sensorCharacteristic.startNotifications();
+                sensorCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+                // Característica de COMANDO (para escribir)
+                commandCharacteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
+
+                // --- ¡Conexión Exitosa! ---
+                statusDisplay.textContent = "¡Conectado!";
+                connectButton.textContent = "Desconectar";
+                connectButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+                connectButton.classList.add('bg-red-600', 'hover:bg-red-700');
+                
+                setControlButtonsState(true); // Habilitar botones de control
+                dataArea.classList.remove('opacity-30'); // Mostrar área de datos
+                
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+            } catch (error) {
+                console.error("Error al conectar:", error);
+                statusDisplay.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // --- Función de Desconexión ---
+        function onDisconnected() {
+            statusDisplay.textContent = "Desconectado";
+            valueDisplay.textContent = "---";
+            graphBar.style.height = "0%";
+            connectButton.textContent = "Conectar al ESP32";
+            connectButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+            connectButton.classList.add('bg-green-600', 'hover:bg-green-700');
+            
+            setControlButtonsState(false); // Deshabilitar botones de control
+            dataArea.classList.add('opacity-30'); // Ocultar área de datos
+            isScanningApp = false;
+            
+            if (sensorCharacteristic) {
+                sensorCharacteristic.removeEventListener('characteristicvaluechanged', handleNotifications);
+            }
+        }
+
+        // --- Función para Enviar Comandos ---
+        async function sendCommand(command) {
+            if (!commandCharacteristic || !bleDevice || !bleDevice.gatt.connected) {
+                console.error("No conectado o característica de comando no disponible.");
+                return;
+            }
+            
+            try {
+                // Convertir el string del comando a bytes (UTF-8)
+                const encoder = new TextEncoder();
+                const data = encoder.encode(command);
+                
+                await commandCharacteristic.writeValue(data);
+                console.log("Comando enviado:", command);
+                
+                // Actualizar UI según el comando
+                if(command === 'START') isScanningApp = true;
+                if(command === 'STOP') isScanningApp = false;
+                
+            } catch (error) {
+                console.error("Error al enviar comando:", error);
+            }
+        }
+
+        // --- Manejador de Notificaciones (Datos recibidos) ---
+        function handleNotifications(event) {
+            // Solo actualiza la UI si el flag de la app está en "true"
+            if (!isScanningApp) return; 
+
+            const value = new TextDecoder().decode(event.target.value);
+            const intValue = parseInt(value, 10);
+
+            // Actualizar valor numérico
+            valueDisplay.textContent = intValue;
+            
+            // Mapear 0-4095 a 0-100% para la barra
+            const heightPercent = (intValue / 4095) * 100;
+            graphBar.style.height = `${heightPercent}%`;
+        }
+
+        // --- Asignar evento al botón de conexión ---
+        connectButton.addEventListener('click', () => {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            } else {
+                connectDevice();
+            }
+        });
+
+        // --- Asignar eventos a los botones de control ---
+        startButton.addEventListener('click', () => sendCommand('START'));
+        stopButton.addEventListener('click', () => sendCommand('STOP'));
+        calibrateButton.addEventListener('click', () => sendCommand('CALIBRATE'));
+
+    </script>
+</body>
+</html>
 
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Iniciando servidor BLE v2.0 - Sensor Clorofila");
-
-  // Configura el pin del sensor
-  pinMode(SENSOR_PIN, INPUT);
-
-  // --- Inicializar BLE ---
-  BLEDevice::init("ESP32_Clorofila_Control"); // El nombre que verá el usuario
-
-  // 1. Crear el Servidor BLE
-  BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  // 2. Crear el Servicio
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-
-  // 3. Crear la Característica del SENSOR (Notificar)
-  pSensorCharacteristic = pService->createCharacteristic(
-                      SENSOR_CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_READ |
-                      BLECharacteristic::PROPERTY_NOTIFY
-                    );
-
-  // 4. Crear la Característica de COMANDOS (Escribir)
-  pCommandCharacteristic = pService->createCharacteristic(
-                      COMMAND_CHARACTERISTIC_UUID,
-                      BLECharacteristic::PROPERTY_WRITE
-                    );
-  // Asignar el callback para cuando la app escriba un comando
-  pCommandCharacteristic->setCallbacks(new MyCommandCallbacks());
-
-
-  // 5. Iniciar el Servicio
-  pService->start();
-
-  // 6. Iniciar el "Advertising" (anuncio)
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  BLEDevice::startAdvertising();
-
-  Serial.println("=========================================");
-  Serial.println("Servidor BLE iniciado. Esperando conexiones...");
-  Serial.println("=========================================");
-}
-
-void loop() {
-  
-  // Solo leer y notificar si estamos conectados Y el escaneo está activo
-  if (deviceConnected && isScanning) {
-    // --- 1. Leer el Sensor ---
-    sensorValue = analogRead(SENSOR_PIN);
-    
-    // Aquí es donde harías el cálculo de absorbancia usando 'calibrationValue'
-    // float absorbancia = log10((float)calibrationValue / (float)sensorValue);
-    // Por ahora, solo enviamos el valor crudo:
-    
-    Serial.print("Valor Sensor: ");
-    Serial.println(sensorValue);
-
-    // --- 2. Actualizar el valor BLE ---
-    std::string s_value = std::to_string(sensorValue);
-    pSensorCharacteristic->setValue(s_value);
-    pSensorCharacteristic->notify(); // Enviar el dato a la app
-  }
-
-  // --- Espera ---
-  // Este delay controla la tasa de muestreo
-  // Si no estamos escaneando, el ESP32 "descansa" pero sigue escuchando comandos.
-  delay(500); 
-}
