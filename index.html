@@ -7,22 +7,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* Fuente Inter para un look moderno */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            overscroll-behavior-y: contain;
-        }
-        /* Estilos para botones deshabilitados */
-        button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-        /* Transiciones suaves */
-        .transition-all {
-            transition: all 0.3s ease-in-out;
-        }
-        /* Colores de estado (para Tailwind) */
+        body { font-family: 'Inter', sans-serif; overscroll-behavior-y: contain; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .transition-all { transition: all 0.3s ease-in-out; }
         .status-healthy { background-color: #10B981; } /* green-600 */
         .status-stressed { background-color: #F59E0B; } /* amber-500 */
         .status-danger { background-color: #EF4444; } /* red-500 */
@@ -74,12 +62,12 @@
                 <canvas id="sensorChart"></canvas>
             </div>
         </div>
-
     </div>
 
     <script>
         // --- UUIDs (DEBEN COINCIDIR EXACTAMENTE CON LOS DEL CÓDIGO .INO) ---
-        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+        // <--- ¡¡CAMBIO AQUÍ!! (Termina en 'c' en lugar de 'b')
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914c";
         const SENSOR_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
         const COMMAND_CHARACTERISTIC_UUID = "f27a7c06-3b60-444f-800d-e1e3676c5b9f";
 
@@ -91,25 +79,21 @@
             document.getElementById('stopButton'),
             document.getElementById('calibrateButton')
         ];
-        
-        // --- Elementos de la nueva UI ---
         const statusCard = document.getElementById('statusCard');
         const plantStatusText = document.getElementById('plantStatusText');
         const plantStatusBar = document.getElementById('plantStatusBar');
         const plantStatusColor = document.getElementById('plantStatusColor');
         const stressLevelText = document.getElementById('stressLevelText');
-        
         const toggleChartButton = document.getElementById('toggleChartButton');
         const chartContainer = document.getElementById('chartContainer');
 
-        // --- Variables Globales de la App ---
+        // --- Variables Globales ---
         let bleDevice;
         let sensorCharacteristic;
         let commandCharacteristic;
         let isScanningApp = false;
         let sensorChart;
 
-        // --- Al cargar la página, deshabilitar botones de control ---
         function setControlState(enabled) {
             controlButtons.forEach(button => button.disabled = !enabled);
             toggleChartButton.disabled = !enabled;
@@ -123,16 +107,15 @@
                 statusCard.classList.remove('opacity-30');
             }
         }
-        setControlState(false); // Deshabilitados al inicio
+        setControlState(false); 
 
-        // --- Función de Conexión ---
         async function connectDevice() {
             try {
                 statusDisplay.textContent = "Buscando dispositivo...";
                 
                 bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [ { name: 'ESP32_Clorofila_Control' } ],
-                    optionalServices: [SERVICE_UUID]
+                    optionalServices: [SERVICE_UUID] 
                 });
 
                 statusDisplay.textContent = "Conectando al GATT...";
@@ -162,7 +145,6 @@
             }
         }
 
-        // --- Función de Desconexión ---
         function onDisconnected() {
             statusDisplay.textContent = "Desconectado";
             connectButton.textContent = "Conectar al ESP32";
@@ -177,7 +159,6 @@
             }
         }
 
-        // --- Función para Enviar Comandos ---
         async function sendCommand(command) {
             if (!commandCharacteristic || !bleDevice || !bleDevice.gatt.connected) return;
             try {
@@ -194,31 +175,21 @@
             }
         }
 
-        // --- Manejador de Notificaciones (Datos recibidos) ---
         function handleNotifications(event) {
             const value = new TextDecoder().decode(event.target.value);
             if (!isScanningApp) return; 
 
             try {
-                // Parsea el JSON: {"v":2750,"c":850}
                 const data = JSON.parse(value);
                 const sensorVal = data.v;
                 const calibrationVal = data.c;
 
-                // --- 1. Actualizar el Gráfico (Vista Experto) ---
                 if (sensorChart && chartContainer.style.display !== 'hidden') {
                     updateChart(sensorVal);
                 }
 
-                // --- 2. Calcular y Actualizar la Tarjeta de Estado ---
-                // Lógica de "Estrés":
-                // Comparamos cuánto se aleja la lectura actual del "blanco".
-                // Más diferencia = más clorofila = más "estrés" (en este demo)
-                // Ajusta los rangos (0.0 a 1.0) según tus pruebas reales
                 let stressRatio = 0;
                 if (calibrationVal > 0) {
-                    // Mapea la diferencia a un ratio de 0.0 a 1.0
-                    // (valor - blanco) / (max_posible - blanco)
                     stressRatio = (sensorVal - calibrationVal) / (4095.0 - calibrationVal);
                 }
                 if (stressRatio < 0) stressRatio = 0;
@@ -231,13 +202,11 @@
             }
         }
         
-        // --- (NUEVO) Función para actualizar la Tarjeta de Estado ---
         function updateStatusCard(ratio) {
             let statusText = "SALUDABLE";
             let statusClass = "status-healthy"; // green
             let percent = Math.round(ratio * 100);
 
-            // Ajusta estos rangos (0.4 y 0.7) según tus necesidades
             if (ratio > 0.7) {
                 statusText = "ESTRÉS SEVERO";
                 statusClass = "status-danger"; // red
@@ -249,13 +218,11 @@
             plantStatusText.textContent = statusText;
             stressLevelText.textContent = `Nivel de Estrés: ${percent}%`;
             
-            // Actualiza la barra de color
             plantStatusColor.className = `h-full transition-all ${statusClass}`;
             plantStatusColor.style.width = `${percent}%`;
         }
 
 
-        // --- (NUEVO) Lógica del Gráfico ---
         function initChart() {
             const ctx = document.getElementById('sensorChart').getContext('2d');
             sensorChart = new Chart(ctx, {
@@ -265,28 +232,26 @@
                     datasets: [{
                         label: 'Valor Crudo del Sensor',
                         data: [],
-                        borderColor: '#34D399', // green-400
+                        borderColor: '#34D399', 
                         backgroundColor: 'rgba(52, 211, 153, 0.1)',
                         borderWidth: 2,
                         fill: true,
-                        tension: 0.4 // Líneas curvas
+                        tension: 0.4 
                     }]
                 },
                 options: {
                     scales: {
                         y: {
-                            beginAtZero: false, // El valor no siempre es 0
-                            ticks: { color: '#9CA3AF' }, // gray-400
-                            grid: { color: '#374151' } // gray-700
+                            beginAtZero: false, 
+                            ticks: { color: '#9CA3AF' }, 
+                            grid: { color: '#374151' } 
                         },
                         x: {
                             ticks: { color: '#9CA3AF' },
                             grid: { color: '#374151' }
                         }
                     },
-                    plugins: {
-                        legend: { display: false }
-                    },
+                    plugins: { legend: { display: false } },
                     maintainAspectRatio: false
                 }
             });
@@ -295,14 +260,13 @@
         function updateChart(value) {
             if (!sensorChart) return;
             
-            const MAX_DATA_POINTS = 30; // Muestra los últimos 30 seg (si el delay es 1000ms)
+            const MAX_DATA_POINTS = 30; 
             const now = new Date();
             const label = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
 
             sensorChart.data.labels.push(label);
             sensorChart.data.datasets[0].data.push(value);
 
-            // Limita el número de puntos en el gráfico
             if (sensorChart.data.labels.length > MAX_DATA_POINTS) {
                 sensorChart.data.labels.shift();
                 sensorChart.data.datasets[0].data.shift();
@@ -315,7 +279,7 @@
                 chartContainer.classList.remove('hidden');
                 toggleChartButton.textContent = "Ocultar Gráfico Detallado ▲";
                 if (!sensorChart) {
-                    initChart(); // Inicializa el gráfico la primera vez
+                    initChart();
                 }
             } else {
                 chartContainer.classList.add('hidden');
@@ -323,7 +287,6 @@
             }
         });
 
-        // --- Asignar evento al botón de conexión ---
         connectButton.addEventListener('click', () => {
             if (bleDevice && bleDevice.gatt.connected) {
                 bleDevice.gatt.disconnect();
@@ -332,11 +295,10 @@
             }
         });
 
-        // --- Asignar eventos a los botones de control ---
         controlButtons[0].addEventListener('click', () => sendCommand('START'));
         controlButtons[1].addEventListener('click', () => sendCommand('STOP'));
         controlButtons[2].addEventListener('click', () => sendCommand('CALIBRATE'));
-
     </script>
 </body>
 </html>
+
