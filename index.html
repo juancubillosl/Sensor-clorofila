@@ -4,69 +4,74 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Control - Sensor Clorofila</title>
-    <!-- Carga de Tailwind CSS para estilos -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* Fuente Inter para un look moderno */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            /* Evitar rebote en scroll en móviles */
             overscroll-behavior-y: contain;
         }
-        #graphBarContainer { background-color: #374151; }
-        #graphBar { 
-            transition: height 0.3s ease; 
-            box-shadow: 0 0 10px rgba(52, 211, 153, 0.5); /* Sombra verde */
-        }
-        /* Estilo para botones deshabilitados */
+        /* Estilos para botones deshabilitados */
         button:disabled {
             opacity: 0.4;
             cursor: not-allowed;
         }
+        /* Transiciones suaves */
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+        /* Colores de estado (para Tailwind) */
+        .status-healthy { background-color: #10B981; } /* green-600 */
+        .status-stressed { background-color: #F59E0B; } /* amber-500 */
+        .status-danger { background-color: #EF4444; } /* red-500 */
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">
 
-    <!-- Contenedor principal -->
-    <div class="bg-gray-800 p-6 md:p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+    <div class="bg-gray-800 p-6 md:p-8 rounded-2xl shadow-2xl w-full max-w-md">
         
-        <!-- Título y Estado -->
         <div class="text-center mb-6">
-            <h1 class="text-3xl font-bold text-green-400">Sensor Clorofila</h1>
+            <h1 class="text-3xl font-bold text-green-400">Panel de Control</h1>
             <p id="status" class="text-sm text-gray-400 mt-2">Desconectado</p>
         </div>
 
-        <!-- Botón de Conexión -->
-        <button id="connectButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-300 shadow-lg mb-6 focus:outline-none focus:ring-2 focus:ring-green-400">
+        <button id="connectButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition-all shadow-lg mb-6 focus:outline-none focus:ring-2 focus:ring-green-400">
             Conectar al ESP32
         </button>
 
-        <!-- Panel de Control -->
-        <div id="controlPanel" class="pt-6 border-t border-gray-700">
+        <div id="statusCard" class="bg-gray-700 p-6 rounded-lg text-center transition-all opacity-30">
+            <p class="text-lg font-medium text-gray-300 mb-2">Estado de la Planta</p>
+            <p id="plantStatusText" class="text-4xl font-extrabold text-white">---</p>
+            <div id="plantStatusBar" class="w-full h-4 rounded-full mt-4 bg-gray-900 overflow-hidden">
+                <div id="plantStatusColor" class="h-full transition-all" style="width: 0%; background-color: #4B5563;"></div>
+            </div>
+            <p id="stressLevelText" class="text-sm text-gray-400 mt-2">Esperando datos...</p>
+        </div>
+
+        <div id="controlPanel" class="pt-6 mt-6 border-t border-gray-700">
             <h2 class="text-xl font-semibold text-center text-gray-300 mb-4">Panel de Control</h2>
-            <div class="space-y-3">
+            <div class="grid grid-cols-3 gap-3">
                 <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-400">
-                    Iniciar Escaneo
+                    Iniciar
                 </button>
                 <button id="stopButton" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-yellow-400">
-                    Detener Escaneo
+                    Detener
                 </button>
                 <button id="calibrateButton" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                    Calibrar (Tomar Blanco)
+                    Calibrar
                 </button>
             </div>
         </div>
 
-        <!-- Área de Datos -->
-        <div id="dataArea" class="mt-8 pt-8 border-t border-gray-700 opacity-30">
-            <p class="text-lg font-medium text-gray-300 text-center">Valor Crudo del Sensor</p>
-            <div id="sensorValue" class="text-7xl font-extrabold text-center my-4 text-green-300">
-                ---
-            </div>
-            <p class="text-sm text-gray-400 text-center mb-2">Nivel (0-4095)</p>
-            <div id="graphBarContainer" class="w-full h-16 rounded-lg overflow-hidden flex items-end">
-                <div id="graphBar" class="w-full bg-gradient-to-t from-green-600 to-green-400" style="height: 0%;"></div>
+        <div class="mt-8 pt-8 border-t border-gray-700">
+            <button id="toggleChartButton" class="w-full text-gray-400 hover:text-white transition">
+                Mostrar Gráfico Detallado ▼
+            </button>
+            <div id="chartContainer" class="hidden mt-4">
+                <p class="text-sm text-gray-400 text-center mb-2">Lectura del sensor en tiempo real (Valor Crudo)</p>
+                <canvas id="sensorChart"></canvas>
             </div>
         </div>
 
@@ -81,27 +86,44 @@
         // --- Elementos del DOM ---
         const connectButton = document.getElementById('connectButton');
         const statusDisplay = document.getElementById('status');
-        const valueDisplay = document.getElementById('sensorValue');
-        const graphBar = document.getElementById('graphBar');
-        const dataArea = document.getElementById('dataArea');
+        const controlButtons = [
+            document.getElementById('startButton'),
+            document.getElementById('stopButton'),
+            document.getElementById('calibrateButton')
+        ];
         
-        // Botones de control
-        const startButton = document.getElementById('startButton');
-        const stopButton = document.getElementById('stopButton');
-        const calibrateButton = document.getElementById('calibrateButton');
-        const controlButtons = [startButton, stopButton, calibrateButton];
+        // --- Elementos de la nueva UI ---
+        const statusCard = document.getElementById('statusCard');
+        const plantStatusText = document.getElementById('plantStatusText');
+        const plantStatusBar = document.getElementById('plantStatusBar');
+        const plantStatusColor = document.getElementById('plantStatusColor');
+        const stressLevelText = document.getElementById('stressLevelText');
+        
+        const toggleChartButton = document.getElementById('toggleChartButton');
+        const chartContainer = document.getElementById('chartContainer');
 
         // --- Variables Globales de la App ---
         let bleDevice;
         let sensorCharacteristic;
         let commandCharacteristic;
-        let isScanningApp = false; // Flag de la app para controlar la UI
+        let isScanningApp = false;
+        let sensorChart;
 
         // --- Al cargar la página, deshabilitar botones de control ---
-        function setControlButtonsState(enabled) {
+        function setControlState(enabled) {
             controlButtons.forEach(button => button.disabled = !enabled);
+            toggleChartButton.disabled = !enabled;
+            if (!enabled) {
+                statusCard.classList.add('opacity-30');
+                plantStatusText.textContent = "---";
+                plantStatusColor.style.width = "0%";
+                plantStatusColor.className = "h-full transition-all";
+                stressLevelText.textContent = "Esperando datos...";
+            } else {
+                statusCard.classList.remove('opacity-30');
+            }
         }
-        setControlButtonsState(false); // Deshabilitados al inicio
+        setControlState(false); // Deshabilitados al inicio
 
         // --- Función de Conexión ---
         async function connectDevice() {
@@ -109,11 +131,8 @@
                 statusDisplay.textContent = "Buscando dispositivo...";
                 
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [
-                        { name: 'ESP32_Clorofila_Control' }, // Filtra por nombre
-                        { services: [SERVICE_UUID] }          // O filtra por servicio
-                    ],
-                    optionalServices: [SERVICE_UUID] // Necesario para iOS/iPadOS
+                    filters: [ { name: 'ESP32_Clorofila_Control' } ],
+                    optionalServices: [SERVICE_UUID]
                 });
 
                 statusDisplay.textContent = "Conectando al GATT...";
@@ -123,23 +142,18 @@
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
                 statusDisplay.textContent = "Obteniendo características...";
-                // Característica del SENSOR (para leer)
                 sensorCharacteristic = await service.getCharacteristic(SENSOR_CHARACTERISTIC_UUID);
                 await sensorCharacteristic.startNotifications();
                 sensorCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
 
-                // Característica de COMANDO (para escribir)
                 commandCharacteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
 
-                // --- ¡Conexión Exitosa! ---
                 statusDisplay.textContent = "¡Conectado!";
                 connectButton.textContent = "Desconectar";
                 connectButton.classList.remove('bg-green-600', 'hover:bg-green-700');
                 connectButton.classList.add('bg-red-600', 'hover:bg-red-700');
                 
-                setControlButtonsState(true); // Habilitar botones de control
-                dataArea.classList.remove('opacity-30'); // Mostrar área de datos
-                
+                setControlState(true);
                 bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
             } catch (error) {
@@ -151,14 +165,11 @@
         // --- Función de Desconexión ---
         function onDisconnected() {
             statusDisplay.textContent = "Desconectado";
-            valueDisplay.textContent = "---";
-            graphBar.style.height = "0%";
             connectButton.textContent = "Conectar al ESP32";
             connectButton.classList.remove('bg-red-600', 'hover:bg-red-700');
             connectButton.classList.add('bg-green-600', 'hover:bg-green-700');
             
-            setControlButtonsState(false); // Deshabilitar botones de control
-            dataArea.classList.add('opacity-30'); // Ocultar área de datos
+            setControlState(false);
             isScanningApp = false;
             
             if (sensorCharacteristic) {
@@ -168,20 +179,13 @@
 
         // --- Función para Enviar Comandos ---
         async function sendCommand(command) {
-            if (!commandCharacteristic || !bleDevice || !bleDevice.gatt.connected) {
-                console.error("No conectado o característica de comando no disponible.");
-                return;
-            }
-            
+            if (!commandCharacteristic || !bleDevice || !bleDevice.gatt.connected) return;
             try {
-                // Convertir el string del comando a bytes (UTF-8)
                 const encoder = new TextEncoder();
                 const data = encoder.encode(command);
-                
                 await commandCharacteristic.writeValue(data);
                 console.log("Comando enviado:", command);
                 
-                // Actualizar UI según el comando
                 if(command === 'START') isScanningApp = true;
                 if(command === 'STOP') isScanningApp = false;
                 
@@ -192,19 +196,132 @@
 
         // --- Manejador de Notificaciones (Datos recibidos) ---
         function handleNotifications(event) {
-            // Solo actualiza la UI si el flag de la app está en "true"
+            const value = new TextDecoder().decode(event.target.value);
             if (!isScanningApp) return; 
 
-            const value = new TextDecoder().decode(event.target.value);
-            const intValue = parseInt(value, 10);
+            try {
+                // Parsea el JSON: {"v":2750,"c":850}
+                const data = JSON.parse(value);
+                const sensorVal = data.v;
+                const calibrationVal = data.c;
 
-            // Actualizar valor numérico
-            valueDisplay.textContent = intValue;
-            
-            // Mapear 0-4095 a 0-100% para la barra
-            const heightPercent = (intValue / 4095) * 100;
-            graphBar.style.height = `${heightPercent}%`;
+                // --- 1. Actualizar el Gráfico (Vista Experto) ---
+                if (sensorChart && chartContainer.style.display !== 'hidden') {
+                    updateChart(sensorVal);
+                }
+
+                // --- 2. Calcular y Actualizar la Tarjeta de Estado ---
+                // Lógica de "Estrés":
+                // Comparamos cuánto se aleja la lectura actual del "blanco".
+                // Más diferencia = más clorofila = más "estrés" (en este demo)
+                // Ajusta los rangos (0.0 a 1.0) según tus pruebas reales
+                let stressRatio = 0;
+                if (calibrationVal > 0) {
+                    // Mapea la diferencia a un ratio de 0.0 a 1.0
+                    // (valor - blanco) / (max_posible - blanco)
+                    stressRatio = (sensorVal - calibrationVal) / (4095.0 - calibrationVal);
+                }
+                if (stressRatio < 0) stressRatio = 0;
+                if (stressRatio > 1) stressRatio = 1;
+
+                updateStatusCard(stressRatio);
+
+            } catch (e) {
+                console.error("Error al parsear JSON:", e, "Dato recibido:", value);
+            }
         }
+        
+        // --- (NUEVO) Función para actualizar la Tarjeta de Estado ---
+        function updateStatusCard(ratio) {
+            let statusText = "SALUDABLE";
+            let statusClass = "status-healthy"; // green
+            let percent = Math.round(ratio * 100);
+
+            // Ajusta estos rangos (0.4 y 0.7) según tus necesidades
+            if (ratio > 0.7) {
+                statusText = "ESTRÉS SEVERO";
+                statusClass = "status-danger"; // red
+            } else if (ratio > 0.4) {
+                statusText = "ESTRÉS LEVE";
+                statusClass = "status-stressed"; // yellow
+            }
+
+            plantStatusText.textContent = statusText;
+            stressLevelText.textContent = `Nivel de Estrés: ${percent}%`;
+            
+            // Actualiza la barra de color
+            plantStatusColor.className = `h-full transition-all ${statusClass}`;
+            plantStatusColor.style.width = `${percent}%`;
+        }
+
+
+        // --- (NUEVO) Lógica del Gráfico ---
+        function initChart() {
+            const ctx = document.getElementById('sensorChart').getContext('2d');
+            sensorChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Valor Crudo del Sensor',
+                        data: [],
+                        borderColor: '#34D399', // green-400
+                        backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4 // Líneas curvas
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: false, // El valor no siempre es 0
+                            ticks: { color: '#9CA3AF' }, // gray-400
+                            grid: { color: '#374151' } // gray-700
+                        },
+                        x: {
+                            ticks: { color: '#9CA3AF' },
+                            grid: { color: '#374151' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        function updateChart(value) {
+            if (!sensorChart) return;
+            
+            const MAX_DATA_POINTS = 30; // Muestra los últimos 30 seg (si el delay es 1000ms)
+            const now = new Date();
+            const label = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
+
+            sensorChart.data.labels.push(label);
+            sensorChart.data.datasets[0].data.push(value);
+
+            // Limita el número de puntos en el gráfico
+            if (sensorChart.data.labels.length > MAX_DATA_POINTS) {
+                sensorChart.data.labels.shift();
+                sensorChart.data.datasets[0].data.shift();
+            }
+            sensorChart.update();
+        }
+
+        toggleChartButton.addEventListener('click', () => {
+            if (chartContainer.classList.contains('hidden')) {
+                chartContainer.classList.remove('hidden');
+                toggleChartButton.textContent = "Ocultar Gráfico Detallado ▲";
+                if (!sensorChart) {
+                    initChart(); // Inicializa el gráfico la primera vez
+                }
+            } else {
+                chartContainer.classList.add('hidden');
+                toggleChartButton.textContent = "Mostrar Gráfico Detallado ▼";
+            }
+        });
 
         // --- Asignar evento al botón de conexión ---
         connectButton.addEventListener('click', () => {
@@ -216,12 +333,10 @@
         });
 
         // --- Asignar eventos a los botones de control ---
-        startButton.addEventListener('click', () => sendCommand('START'));
-        stopButton.addEventListener('click', () => sendCommand('STOP'));
-        calibrateButton.addEventListener('click', () => sendCommand('CALIBRATE'));
+        controlButtons[0].addEventListener('click', () => sendCommand('START'));
+        controlButtons[1].addEventListener('click', () => sendCommand('STOP'));
+        controlButtons[2].addEventListener('click', () => sendCommand('CALIBRATE'));
 
     </script>
 </body>
 </html>
-
-
