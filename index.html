@@ -4,118 +4,116 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Control - Sensor Clorofila</title>
+    <!-- Carga de Tailwind CSS para estilos -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* Fuente Inter para un look moderno */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; overscroll-behavior-y: contain; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .transition-all { transition: all 0.3s ease-in-out; }
-        .status-healthy { background-color: #10B981; } /* green-600 */
-        .status-stressed { background-color: #F59E0B; } /* amber-500 */
-        .status-danger { background-color: #EF4444; } /* red-500 */
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Evitar rebote en scroll en móviles */
+            overscroll-behavior-y: contain;
+        }
+        #graphBarContainer { background-color: #374151; }
+        #graphBar { 
+            transition: height 0.3s ease; 
+            box-shadow: 0 0 10px rgba(52, 211, 153, 0.5); /* Sombra verde */
+        }
+        /* Estilo para botones deshabilitados */
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">
 
-    <div class="bg-gray-800 p-6 md:p-8 rounded-2xl shadow-2xl w-full max-w-md">
+    <!-- Contenedor principal -->
+    <div class="bg-gray-800 p-6 md:p-8 rounded-2xl shadow-2xl w-full max-w-sm">
         
+        <!-- Título y Estado -->
         <div class="text-center mb-6">
-            <h1 class="text-3xl font-bold text-green-400">Panel de Control</h1>
+            <h1 class="text-3xl font-bold text-green-400">Sensor Clorofila</h1>
             <p id="status" class="text-sm text-gray-400 mt-2">Desconectado</p>
         </div>
 
-        <button id="connectButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition-all shadow-lg mb-6 focus:outline-none focus:ring-2 focus:ring-green-400">
+        <!-- Botón de Conexión -->
+        <button id="connectButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-300 shadow-lg mb-6 focus:outline-none focus:ring-2 focus:ring-green-400">
             Conectar al ESP32
         </button>
 
-        <div id="statusCard" class="bg-gray-700 p-6 rounded-lg text-center transition-all opacity-30">
-            <p class="text-lg font-medium text-gray-300 mb-2">Estado de la Planta</p>
-            <p id="plantStatusText" class="text-4xl font-extrabold text-white">---</p>
-            <div id="plantStatusBar" class="w-full h-4 rounded-full mt-4 bg-gray-900 overflow-hidden">
-                <div id="plantStatusColor" class="h-full transition-all" style="width: 0%; background-color: #4B5563;"></div>
-            </div>
-            <p id="stressLevelText" class="text-sm text-gray-400 mt-2">Esperando datos...</p>
-        </div>
-
-        <div id="controlPanel" class="pt-6 mt-6 border-t border-gray-700">
+        <!-- Panel de Control -->
+        <div id="controlPanel" class="pt-6 border-t border-gray-700">
             <h2 class="text-xl font-semibold text-center text-gray-300 mb-4">Panel de Control</h2>
-            <div class="grid grid-cols-3 gap-3">
+            <div class="space-y-3">
                 <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-400">
-                    Iniciar
+                    Iniciar Escaneo
                 </button>
                 <button id="stopButton" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-yellow-400">
-                    Detener
+                    Detener Escaneo
                 </button>
                 <button id="calibrateButton" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-indigo-400">
-                    Calibrar
+                    Calibrar (Tomar Blanco)
                 </button>
             </div>
         </div>
 
-        <div class="mt-8 pt-8 border-t border-gray-700">
-            <button id="toggleChartButton" class="w-full text-gray-400 hover:text-white transition">
-                Mostrar Gráfico Detallado ▼
-            </button>
-            <div id="chartContainer" class="hidden mt-4">
-                <p class="text-sm text-gray-400 text-center mb-2">Lectura del sensor en tiempo real (Valor Crudo)</p>
-                <canvas id="sensorChart"></canvas>
+        <!-- Área de Datos -->
+        <div id="dataArea" class="mt-8 pt-8 border-t border-gray-700 opacity-30">
+            <p class="text-lg font-medium text-gray-300 text-center">Valor Crudo del Sensor</p>
+            <div id="sensorValue" class="text-7xl font-extrabold text-center my-4 text-green-300">
+                ---
+            </div>
+            <p class="text-sm text-gray-400 text-center mb-2">Nivel (0-4095)</p>
+            <div id="graphBarContainer" class="w-full h-16 rounded-lg overflow-hidden flex items-end">
+                <div id="graphBar" class="w-full bg-gradient-to-t from-green-600 to-green-400" style="height: 0%;"></div>
             </div>
         </div>
+
     </div>
 
     <script>
         // --- UUIDs (DEBEN COINCIDIR EXACTAMENTE CON LOS DEL CÓDIGO .INO) ---
-        // <--- ¡¡CAMBIO AQUÍ!! (Termina en 'c' en lugar de 'b')
-        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914c";
+        const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
         const SENSOR_CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
         const COMMAND_CHARACTERISTIC_UUID = "f27a7c06-3b60-444f-800d-e1e3676c5b9f";
 
         // --- Elementos del DOM ---
         const connectButton = document.getElementById('connectButton');
         const statusDisplay = document.getElementById('status');
-        const controlButtons = [
-            document.getElementById('startButton'),
-            document.getElementById('stopButton'),
-            document.getElementById('calibrateButton')
-        ];
-        const statusCard = document.getElementById('statusCard');
-        const plantStatusText = document.getElementById('plantStatusText');
-        const plantStatusBar = document.getElementById('plantStatusBar');
-        const plantStatusColor = document.getElementById('plantStatusColor');
-        const stressLevelText = document.getElementById('stressLevelText');
-        const toggleChartButton = document.getElementById('toggleChartButton');
-        const chartContainer = document.getElementById('chartContainer');
+        const valueDisplay = document.getElementById('sensorValue');
+        const graphBar = document.getElementById('graphBar');
+        const dataArea = document.getElementById('dataArea');
+        
+        // Botones de control
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const calibrateButton = document.getElementById('calibrateButton');
+        const controlButtons = [startButton, stopButton, calibrateButton];
 
-        // --- Variables Globales ---
+        // --- Variables Globales de la App ---
         let bleDevice;
         let sensorCharacteristic;
         let commandCharacteristic;
-        let isScanningApp = false;
-        let sensorChart;
+        let isScanningApp = false; // Flag de la app para controlar la UI
 
-        function setControlState(enabled) {
+        // --- Al cargar la página, deshabilitar botones de control ---
+        function setControlButtonsState(enabled) {
             controlButtons.forEach(button => button.disabled = !enabled);
-            toggleChartButton.disabled = !enabled;
-            if (!enabled) {
-                statusCard.classList.add('opacity-30');
-                plantStatusText.textContent = "---";
-                plantStatusColor.style.width = "0%";
-                plantStatusColor.className = "h-full transition-all";
-                stressLevelText.textContent = "Esperando datos...";
-            } else {
-                statusCard.classList.remove('opacity-30');
-            }
         }
-        setControlState(false); 
+        setControlButtonsState(false); // Deshabilitados al inicio
 
+        // --- Función de Conexión ---
         async function connectDevice() {
             try {
                 statusDisplay.textContent = "Buscando dispositivo...";
                 
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [ { name: 'ESP32_Clorofila_Control' } ],
-                    optionalServices: [SERVICE_UUID] 
+                    filters: [
+                        { name: 'ESP32_Clorofila_Control' }, // Filtra por nombre
+                        { services: [SERVICE_UUID] }          // O filtra por servicio
+                    ],
+                    optionalServices: [SERVICE_UUID] // Necesario para iOS/iPadOS
                 });
 
                 statusDisplay.textContent = "Conectando al GATT...";
@@ -125,18 +123,23 @@
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
                 statusDisplay.textContent = "Obteniendo características...";
+                // Característica del SENSOR (para leer)
                 sensorCharacteristic = await service.getCharacteristic(SENSOR_CHARACTERISTIC_UUID);
                 await sensorCharacteristic.startNotifications();
                 sensorCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
 
+                // Característica de COMANDO (para escribir)
                 commandCharacteristic = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
 
+                // --- ¡Conexión Exitosa! ---
                 statusDisplay.textContent = "¡Conectado!";
                 connectButton.textContent = "Desconectar";
                 connectButton.classList.remove('bg-green-600', 'hover:bg-green-700');
                 connectButton.classList.add('bg-red-600', 'hover:bg-red-700');
                 
-                setControlState(true);
+                setControlButtonsState(true); // Habilitar botones de control
+                dataArea.classList.remove('opacity-30'); // Mostrar área de datos
+                
                 bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
             } catch (error) {
@@ -145,13 +148,17 @@
             }
         }
 
+        // --- Función de Desconexión ---
         function onDisconnected() {
             statusDisplay.textContent = "Desconectado";
+            valueDisplay.textContent = "---";
+            graphBar.style.height = "0%";
             connectButton.textContent = "Conectar al ESP32";
             connectButton.classList.remove('bg-red-600', 'hover:bg-red-700');
             connectButton.classList.add('bg-green-600', 'hover:bg-green-700');
             
-            setControlState(false);
+            setControlButtonsState(false); // Deshabilitar botones de control
+            dataArea.classList.add('opacity-30'); // Ocultar área de datos
             isScanningApp = false;
             
             if (sensorCharacteristic) {
@@ -159,14 +166,22 @@
             }
         }
 
+        // --- Función para Enviar Comandos ---
         async function sendCommand(command) {
-            if (!commandCharacteristic || !bleDevice || !bleDevice.gatt.connected) return;
+            if (!commandCharacteristic || !bleDevice || !bleDevice.gatt.connected) {
+                console.error("No conectado o característica de comando no disponible.");
+                return;
+            }
+            
             try {
+                // Convertir el string del comando a bytes (UTF-8)
                 const encoder = new TextEncoder();
                 const data = encoder.encode(command);
+                
                 await commandCharacteristic.writeValue(data);
                 console.log("Comando enviado:", command);
                 
+                // Actualizar UI según el comando
                 if(command === 'START') isScanningApp = true;
                 if(command === 'STOP') isScanningApp = false;
                 
@@ -175,118 +190,23 @@
             }
         }
 
+        // --- Manejador de Notificaciones (Datos recibidos) ---
         function handleNotifications(event) {
-            const value = new TextDecoder().decode(event.target.value);
+            // Solo actualiza la UI si el flag de la app está en "true"
             if (!isScanningApp) return; 
 
-            try {
-                const data = JSON.parse(value);
-                const sensorVal = data.v;
-                const calibrationVal = data.c;
+            const value = new TextDecoder().decode(event.target.value);
+            const intValue = parseInt(value, 10);
 
-                if (sensorChart && chartContainer.style.display !== 'hidden') {
-                    updateChart(sensorVal);
-                }
-
-                let stressRatio = 0;
-                if (calibrationVal > 0) {
-                    stressRatio = (sensorVal - calibrationVal) / (4095.0 - calibrationVal);
-                }
-                if (stressRatio < 0) stressRatio = 0;
-                if (stressRatio > 1) stressRatio = 1;
-
-                updateStatusCard(stressRatio);
-
-            } catch (e) {
-                console.error("Error al parsear JSON:", e, "Dato recibido:", value);
-            }
-        }
-        
-        function updateStatusCard(ratio) {
-            let statusText = "SALUDABLE";
-            let statusClass = "status-healthy"; // green
-            let percent = Math.round(ratio * 100);
-
-            if (ratio > 0.7) {
-                statusText = "ESTRÉS SEVERO";
-                statusClass = "status-danger"; // red
-            } else if (ratio > 0.4) {
-                statusText = "ESTRÉS LEVE";
-                statusClass = "status-stressed"; // yellow
-            }
-
-            plantStatusText.textContent = statusText;
-            stressLevelText.textContent = `Nivel de Estrés: ${percent}%`;
+            // Actualizar valor numérico
+            valueDisplay.textContent = intValue;
             
-            plantStatusColor.className = `h-full transition-all ${statusClass}`;
-            plantStatusColor.style.width = `${percent}%`;
+            // Mapear 0-4095 a 0-100% para la barra
+            const heightPercent = (intValue / 4095) * 100;
+            graphBar.style.height = `${heightPercent}%`;
         }
 
-
-        function initChart() {
-            const ctx = document.getElementById('sensorChart').getContext('2d');
-            sensorChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Valor Crudo del Sensor',
-                        data: [],
-                        borderColor: '#34D399', 
-                        backgroundColor: 'rgba(52, 211, 153, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4 
-                    }]
-                },
-                options: {
-                    scales: {
-                        y: {
-                            beginAtZero: false, 
-                            ticks: { color: '#9CA3AF' }, 
-                            grid: { color: '#374151' } 
-                        },
-                        x: {
-                            ticks: { color: '#9CA3AF' },
-                            grid: { color: '#374151' }
-                        }
-                    },
-                    plugins: { legend: { display: false } },
-                    maintainAspectRatio: false
-                }
-            });
-        }
-
-        function updateChart(value) {
-            if (!sensorChart) return;
-            
-            const MAX_DATA_POINTS = 30; 
-            const now = new Date();
-            const label = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
-
-            sensorChart.data.labels.push(label);
-            sensorChart.data.datasets[0].data.push(value);
-
-            if (sensorChart.data.labels.length > MAX_DATA_POINTS) {
-                sensorChart.data.labels.shift();
-                sensorChart.data.datasets[0].data.shift();
-            }
-            sensorChart.update();
-        }
-
-        toggleChartButton.addEventListener('click', () => {
-            if (chartContainer.classList.contains('hidden')) {
-                chartContainer.classList.remove('hidden');
-                toggleChartButton.textContent = "Ocultar Gráfico Detallado ▲";
-                if (!sensorChart) {
-                    initChart();
-                }
-            } else {
-                chartContainer.classList.add('hidden');
-                toggleChartButton.textContent = "Mostrar Gráfico Detallado ▼";
-            }
-        });
-
+        // --- Asignar evento al botón de conexión ---
         connectButton.addEventListener('click', () => {
             if (bleDevice && bleDevice.gatt.connected) {
                 bleDevice.gatt.disconnect();
@@ -295,10 +215,11 @@
             }
         });
 
-        controlButtons[0].addEventListener('click', () => sendCommand('START'));
-        controlButtons[1].addEventListener('click', () => sendCommand('STOP'));
-        controlButtons[2].addEventListener('click', () => sendCommand('CALIBRATE'));
+        // --- Asignar eventos a los botones de control ---
+        startButton.addEventListener('click', () => sendCommand('START'));
+        stopButton.addEventListener('click', () => sendCommand('STOP'));
+        calibrateButton.addEventListener('click', () => sendCommand('CALIBRATE'));
+
     </script>
 </body>
 </html>
-
